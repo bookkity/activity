@@ -1,2 +1,2 @@
-# activity
+# Activity
 Discord bot that supports activity
