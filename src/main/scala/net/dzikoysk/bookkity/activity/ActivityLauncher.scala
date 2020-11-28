@@ -1,6 +1,8 @@
 package net.dzikoysk.bookkity.activity
 
-import ackcord.{APIMessage, ClientSettings}
+import java.util.concurrent.CompletableFuture
+
+import ackcord.{APIMessage, ClientSettings, DiscordClient}
 import com.typesafe.scalalogging.Logger
 import org.slf4j.LoggerFactory
 
@@ -9,27 +11,42 @@ import scala.concurrent.duration.Duration
 
 object ActivityLauncher {
 
-  val LOGGER: Logger = Logger(LoggerFactory.getLogger("Activity"))
+  val ActivityLogger: Logger = Logger(LoggerFactory.getLogger("Activity"))
+  val Repository: ActivityRepository = new ActivityRepository()
+  val Client = new CompletableFuture[DiscordClient]()
 
   def main(args: Array[String]): Unit = {
     val clientSettings = ClientSettings(args(0))
-    //The client settings contains an excecution context that you can use before you have access to the client
-    //import clientSettings.executionContext
-
-    //In real code, please dont block on the client construction
     val client = Await.result(clientSettings.createClient(), Duration.Inf)
-
-    //The client also contains an execution context
-    //import client.executionContext
+    Client.complete(client)
 
     client.onEventSideEffectsIgnore {
-      case APIMessage.Ready(_) => LOGGER.info("Now ready")
+      case APIMessage.Ready(_) =>
+        ActivityLogger.info("Bookkity :: Activity is ready")
+      case APIMessage.MessageCreate(_, message, _) =>
+        ActivityLogger.info("Count: " + Repository.increment(message.authorId.toString))
     }
 
-    var commands = new ActivityCommands(client.requests)
+    val commands = new ActivityCommands(client.requests)
     client.commands.runNewNamedCommand(commands.ping)
+    client.commands.runNewNamedCommand(commands.shutdown)
 
+    Repository.load()
     client.login()
+
+    Runtime.getRuntime.addShutdownHook(new Thread {
+      override def run(): Unit = Repository.close()
+    })
+  }
+
+  def shutdown(): Unit = {
+    Client.thenAccept(client => {
+      ActivityLogger.info("Shutting down service...")
+      client.logout()
+
+      Repository.close()
+      client.shutdownJVM()
+    })
   }
 
 }
