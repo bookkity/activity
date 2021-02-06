@@ -3,7 +3,7 @@ package net.dzikoysk.bookkity.activity
 import java.time.{Duration, ZonedDateTime}
 
 import ackcord.Requests
-import ackcord.commands.{CommandBuilder, CommandController, GuildUserCommandMessage, NamedCommand, NamedDescribedCommand}
+import ackcord.commands.{CommandBuilder, CommandController, GuildUserCommandMessage, NamedCommand}
 import ackcord.data.Permission
 import ackcord.syntax.TextChannelSyntax
 import akka.NotUsed
