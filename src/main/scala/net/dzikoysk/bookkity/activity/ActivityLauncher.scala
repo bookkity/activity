@@ -1,6 +1,6 @@
 package net.dzikoysk.bookkity.activity
 
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, Executors, ScheduledFuture, TimeUnit}
 
 import ackcord.{APIMessage, ClientSettings, DiscordClient}
 import com.typesafe.scalalogging.Logger
@@ -11,22 +11,20 @@ import scala.concurrent.duration.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 import ackcord.data.TextGuildChannel
 import ackcord.syntax.TextChannelSyntax
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object ActivityLauncher {
 
   val ActivityLogger: Logger = Logger(LoggerFactory.getLogger("Activity"))
-
   val Repository: ActivityRepository = new ActivityRepository()
-
   val Client: CompletableFuture[DiscordClient] = new CompletableFuture[DiscordClient]()
 
+  val SleepMessage = "Pora się zajebać, zapierdolić"
   val SleepChannels: Array[String] = Array("pandasite", "secret")
 
   def main(args: Array[String]): Unit = {
@@ -34,8 +32,9 @@ object ActivityLauncher {
     val client = Await.result(clientSettings.createClient(), Duration.Inf)
     Client.complete(client)
 
-    val selectedSleepChannels = ArrayBuffer[TextGuildChannel]()
+    val selectedSleepChannels = mutable.HashSet[TextGuildChannel]()
     val scheduler = Executors.newScheduledThreadPool(1)
+    var sleepTask: Option[ScheduledFuture[_]] = None
 
     client.onEventSideEffects { implicit c => {
       case APIMessage.Ready(cache) =>
@@ -46,20 +45,24 @@ object ActivityLauncher {
         val midnight = if (todayMidnight > 0) todayMidnight else LocalDateTime.now.until(LocalDate.now.atStartOfDay.plusHours(24 + 4), ChronoUnit.MINUTES)
         ActivityLogger.info("Time until midnight: " + midnight.toString + "min")
 
-        scheduler.scheduleAtFixedRate(() => {
-          ActivityLogger.info("")
-          selectedSleepChannels.foreach(channel => {
-            client.requestsHelper.run(channel.sendMessage("Pora się zajebać, zapierdolić"))
-          })
-        }, midnight, 1440, TimeUnit.MINUTES)
+        sleepTask = sleepTask.orElse({
+          ActivityLogger.info("Sleep task has been registered")
+
+          Some(scheduler.scheduleAtFixedRate(() => {
+            selectedSleepChannels.foreach(channel => {
+              client.requestsHelper.run(channel.sendMessage(SleepMessage))
+            })
+          }, midnight, 1440, TimeUnit.MINUTES))
+        })
       case APIMessage.GuildCreate(guild, createCache) =>
         guild.channels.values
           .filter(channel => channel.isInstanceOf[TextGuildChannel])
           .map(channel => channel.asInstanceOf[TextGuildChannel])
           .filter(channel => SleepChannels.contains(channel.name))
+          .filter(channel => !selectedSleepChannels.exists(registered => registered.name == channel.name))
           .foreach(channel => {
-            selectedSleepChannels.addOne(channel)
             ActivityLogger.info("Sleep channel registered: " + channel.name)
+            selectedSleepChannels.addOne(channel)
           })
       case APIMessage.MessageCreate(guild, message, cache) =>
         Repository.increment(message.authorId.toString)
